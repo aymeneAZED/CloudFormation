@@ -1,0 +1,403 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+Parameters:
+  #NOM DE LA BASE DE donnees
+  DBName: 
+    Default: mydatabase
+    Description: Nom de la base de donnees
+    Type: String
+
+ 
+Resources:
+ #Creation du VPC 
+  VPCAZE: 
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: Mon VPC
+
+  #Creation du sous réseau public:
+  
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: eu-west-2a
+      VpcId: !Ref VPCAZE
+      Tags:
+        - Key: Name
+          Value: Public Subnet A
+    
+  #Creation du sous reseau public 2:
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: eu-west-2b
+      VpcId: !Ref VPCAZE
+      Tags:
+        - Key : Name
+          Value: Public Subnet B 
+
+  #Creation du sous reseau prive A: 
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.3.0/24
+      VpcId: !Ref VPCAZE
+      AvailabilityZone: eu-west-2a
+      Tags: 
+        - Key: Name
+          Value: Private Subnet A
+  
+  #Sous réseau prive B: 
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      CidrBlock: 10.0.4.0/24
+      VpcId: !Ref VPCAZE
+      AvailabilityZone: eu-west-2b
+      Tags: 
+        - Key: Name
+          Value: Private Subnet B
+
+
+  #Passerelle Internet:
+  
+  InternetGateway: 
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: 
+        - Key : Name
+          Value: Internet Gateway
+  
+  #Gateway Attachement
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPCAZE
+  
+  #Table de routage:
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCAZE
+      Tags: 
+        - Key : Name
+          Value: Route table 
+  #ROUTE  :
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId:  !Ref PublicRouteTable
+  
+  #NAT:
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties: 
+      Domain: VPCAZE
+  
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+     AllocationId: !GetAtt NatGatewayEIP.AllocationId
+     SubnetId: !Ref PublicSubnetA
+
+  #ASSOCIATION table de routage et le sous réseau:
+  SubnetAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+  
+  #Public route table:
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCAZE
+      Tags: 
+        - Key : Name
+          Value: Table
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId:  !Ref PrivateRouteTable
+
+  #Association table de routage et sous reseau:
+
+  SubnetAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+  
+
+  SubnetAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+
+  SubnetAssociation4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  
+  #Groupe de securite 
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Autoriser la connexion ssh et web 
+      GroupName: MyGroup
+      Tags: 
+        - Key: Name
+          Value: 'Groupe de securite public '
+      VpcId: !Ref VPCAZE
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  #LaunchConfiguration Ubuntu Server 20.04 LTS :
+  MyLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    DependsOn: mysqldbinstance
+    Properties:
+      AssociatePublicIpAddress: true
+      ImageId: ami-0015a39e4b7c0966f
+      InstanceType: t2.micro
+      SecurityGroups: 
+        - !Ref  PublicSecurityGroup
+        #Configuration au lancement de la configuration  (UserData)
+      UserData: 
+        Fn::Base64:  
+          !Sub |
+            #!/bin/bash
+            sudo su 
+            apt update -y && sudo apt upgrade -y
+            apt install -y apt-transport-https ca-certificates curl software-properties-common
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+            add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+            apt update -y 
+            apt-cache policy docker-ce
+            mkdir wordpress
+            cd wordpress/
+            apt install docker-ce -y
+            docker pull mysql:5.7.29
+            apt install mysql-client-core-8.0 -y
+            docker run -e MYSQL_ROOT_PASSWORD=aymene1234 -e MYSQL_USER=aymene -e MYSQL_PASSWORD=aymene1234 -e MYSQL_DATABASE=mydatabase -v /root/wordpress/database:/var/lib/mysql --name wordpressdb -d mysql:5.7.29
+            docker pull wordpress:latest
+            docker run --name wordpress -e WORDPRESS_DB_HOST=mysqldbintance.Endpoint.Address:3306 -e WORDPRESS_DB_USER=aymene -e WORDPRESS_DB_PASSWORD=aymene1234 -e WORDPRESS_DB_NAME=mydatabase -p 80:80 -d wordpress
+            
+  # Auto Scaling Group:
+  MyASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: MyAutoScalingGroup
+      DesiredCapacity: 2
+      HealthCheckGracePeriod: 20
+      LaunchConfigurationName: !Ref MyLaunchConfig
+      MinSize: 2
+      MaxSize: 4
+      VPCZoneIdentifier:
+        - !Ref  PublicSubnetA
+        - !Ref  PublicSubnetB
+      TargetGroupARNs:
+        - !Ref DefaultTargetGroup
+
+  #Mise a l'echele
+
+  #Changement de capacite
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref MyASG
+      Cooldown: 120
+      ScalingAdjustment: 1
+      
+
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref MyASG
+      Cooldown: 120
+      ScalingAdjustment: -1
+
+  #Alarme pour Plus de 80pourcent de CPU utilisée
+  CPUAlarmUp:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: 1
+      Statistic: Average
+      Threshold: 80
+      Period: 180
+      AlarmActions: 
+          - Ref: ScaleUpPolicy
+      Dimensions: 
+        - Name: AutoScalingGroupName
+          Value: !Ref MyASG
+      ComparisonOperator: GreaterThanThreshold
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+
+
+
+      
+  #Alarme pour Moins de 60pourcent de CPU Utilisée
+  CPUAlarmDown:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: 1
+      Statistic: Average
+      Threshold: 60
+      Period: 180
+      AlarmActions: 
+          - Ref: ScaleDownPolicy
+      Dimensions: 
+        - Name: AutoScalingGroupName
+          Value: !Ref MyASG
+      ComparisonOperator: LessThanThreshold
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+
+  
+
+
+  #Equilibreur de charge:
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Name: "Load-Balancer"
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+  
+
+  #le port d'écoute:
+
+  LoadBalancerListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions: 
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+  
+  #Groupe cible : 
+
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name:  default
+      VpcId: !Ref VPCAZE
+      Protocol: HTTP
+      Port: 80
+      IpAddressType: ipv4
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: "/"
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 2
+      TargetGroupAttributes:
+        - Key: 'stickiness.lb_cookie.duration_seconds'
+          Value : 86400
+
+  
+  #Groupe de securite pour le load Balancer
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+     GroupDescription: Groupe de securite pour le load Balancer
+     VpcId: !Ref VPCAZE
+     SecurityGroupIngress: 
+     - CidrIp: 0.0.0.0/0
+       IpProtocol: -1
+    
+  
+  #Sous groupe mysql
+  MySQLSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Sous groupe pour Mysql
+      SubnetIds: 
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+  
+  #InstanceMySQL:
+
+  mysqldbinstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      DBInstanceClass: db.t2.micro
+      DBName: !Ref DBName
+      Engine: mysql
+      EngineVersion: 5.7
+      DeleteAutomatedBackups: true
+      VPCSecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      MasterUsername: aymene
+      MasterUserPassword: aymene1234
+      DBSubnetGroupName: !Ref  MySQLSubnetGroup
+
+  
+ #Replication de mysql  dans une autre zone 
+  ReplicaMySQL:
+    Type: AWS::RDS::DBInstance
+    Properties:
+     DBInstanceIdentifier: myReplicaRds
+     SourceDBInstanceIdentifier: !Ref mysqldbinstance
+     DBInstanceClass: db.t2.micro
+     SourceRegion: eu-west-2b
+     Tags:
+       - Key: Name
+         Value: Replication MySQL
